@@ -2300,10 +2300,19 @@ function TabRuntime({
                     }
                     if (m.kind === "assistant") {
                       const stats = !m.pending ? countFileStats(m.segments) : null;
+                      const showAll = state.settings?.showSystemEvents !== false;
+                      const visibleSegments = showAll
+                        ? m.segments
+                        : m.segments.filter(
+                            (s) =>
+                              (s.kind === "text" && s.text.trim()) ||
+                              (s.kind === "tool" && s.ok === false),
+                          );
+                      if (!showAll && visibleSegments.length === 0) return null;
                       return (
                         <div key={`a-${m.turn}`}>
                           <AssistantMsg
-                            segments={m.segments}
+                            segments={visibleSegments}
                             pending={m.pending}
                             model={state.model}
                             onApproveConfirm={onApproveConfirm}
