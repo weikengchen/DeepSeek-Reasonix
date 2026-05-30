@@ -81,3 +81,10 @@ export interface DirEntry {
   name: string;
   isDir: boolean;
 }
+
+export interface ModelInfo {
+  ref: string; // "provider/model" — pass to SetModel
+  provider: string;
+  model: string;
+  current: boolean;
+}

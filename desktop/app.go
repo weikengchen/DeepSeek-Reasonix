@@ -11,8 +11,10 @@ import (
 
 	"reasonix/internal/agent"
 	"reasonix/internal/boot"
+	"reasonix/internal/config"
 	"reasonix/internal/control"
 	"reasonix/internal/event"
+	"reasonix/internal/provider"
 )
 
 // eventChannel is the Wails runtime event name the frontend subscribes to for the
@@ -34,6 +36,7 @@ type App struct {
 
 	startupErr string
 	label      string
+	model      string // active provider name (for the bottom model switcher)
 }
 
 // NewApp constructs the bound object. The controller is built later, in startup,
@@ -50,7 +53,16 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.sink.ctx = ctx
 
-	ctrl, err := boot.Build(ctx, boot.Options{RequireKey: false, Sink: a.sink})
+	// Resolve the active model to its canonical "provider/model" ref up front so
+	// the switcher can mark it current.
+	if cfg, err := config.Load(); err == nil {
+		a.model = cfg.DefaultModel
+		if e, ok := cfg.ResolveModel(cfg.DefaultModel); ok {
+			a.model = e.Name + "/" + e.Model
+		}
+	}
+
+	ctrl, err := boot.Build(ctx, boot.Options{Model: a.model, RequireKey: false, Sink: a.sink})
 	if err != nil {
 		a.startupErr = err.Error()
 		return
@@ -212,6 +224,73 @@ func (a *App) Commands() []CommandInfo {
 		}
 	}
 	return out
+}
+
+// ModelInfo is one (provider, model) the bottom switcher can pick. Ref ("provider/
+// model") is what SetModel takes; Provider/Model are for display.
+type ModelInfo struct {
+	Ref      string `json:"ref"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Current  bool   `json:"current"`
+}
+
+// Models flattens the configured providers into their (provider, model) pairs —
+// the switcher's options — marking the active one. A vendor with a `models` list
+// yields one entry per model, all sharing the same endpoint/key.
+func (a *App) Models() []ModelInfo {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	var out []ModelInfo
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		for _, m := range p.ModelList() {
+			ref := p.Name + "/" + m
+			out = append(out, ModelInfo{Ref: ref, Provider: p.Name, Model: m, Current: ref == a.model})
+		}
+	}
+	return out
+}
+
+// SetModel switches the active model and carries the current conversation into the
+// new model's session, so the chat continues seamlessly and subsequent turns use
+// the new model. (Switching models necessarily resets the prompt cache; that's the
+// cost of the switch.) No-op if name is already active or the controller is down.
+func (a *App) SetModel(name string) error {
+	if a.ctx == nil || name == "" || name == a.model {
+		return nil
+	}
+
+	var carried []provider.Message
+	if a.ctrl != nil {
+		_ = a.ctrl.Snapshot()
+		carried = a.ctrl.History()
+		a.ctrl.Close()
+	}
+
+	ctrl, err := boot.Build(a.ctx, boot.Options{Model: name, RequireKey: false, Sink: a.sink})
+	if err != nil {
+		return err
+	}
+	a.ctrl = ctrl
+	a.model = name
+	a.label = ctrl.Label()
+	ctrl.EnableInteractiveApproval()
+
+	path := ""
+	if dir := ctrl.SessionDir(); dir != "" {
+		path = agent.NewSessionPath(dir, ctrl.Label())
+	}
+	// Carry the prior conversation (full provider.Message log, incl. the system
+	// prompt) into the new session so history is preserved across the switch.
+	if len(carried) > 0 {
+		ctrl.Resume(&agent.Session{Messages: carried}, path)
+	} else if path != "" {
+		ctrl.SetSessionPath(path)
+	}
+	return nil
 }
 
 // DirEntry is one entry in the "@" file-reference menu.

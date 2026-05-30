@@ -5,7 +5,15 @@
 // that streams a canned turn through the same contract — letting the whole UI be
 // developed and laid out without rebuilding the Go side.
 
-import type { CommandInfo, ContextInfo, DirEntry, HistoryMessage, Meta, WireEvent } from "./types";
+import type {
+  CommandInfo,
+  ContextInfo,
+  DirEntry,
+  HistoryMessage,
+  Meta,
+  ModelInfo,
+  WireEvent,
+} from "./types";
 
 // AppBindings mirrors desktop/app.go's exported method set. Keep in sync by hand
 // (or regenerate with `wails generate module` and import wailsjs instead).
@@ -21,6 +29,8 @@ export interface AppBindings {
   Meta(): Promise<Meta>;
   Commands(): Promise<CommandInfo[]>;
   ListDir(rel: string): Promise<DirEntry[]>;
+  Models(): Promise<ModelInfo[]>;
+  SetModel(name: string): Promise<void>;
 }
 
 interface WailsRuntime {
@@ -38,22 +48,37 @@ declare global {
 // Must match desktop/app.go's eventChannel constant.
 const EVENT_CHANNEL = "agent:event";
 
-const wailsApp =
-  typeof window !== "undefined" ? window.go?.main?.App : undefined;
+// Resolve the Wails binding at CALL time, not module-load time: in dev the Wails
+// runtime can inject window.go AFTER this module first evaluates, so snapshotting
+// once would pin the browser mock for the whole session (and show fake data — the
+// dev mock's model list leaking into the real app was exactly this bug).
+function realApp(): AppBindings | undefined {
+  return typeof window !== "undefined" ? window.go?.main?.App : undefined;
+}
 
-export const inWails = !!wailsApp;
+let mockSingleton: AppBindings | null = null;
+function getMock(): AppBindings {
+  if (!mockSingleton) mockSingleton = makeMockApp();
+  return mockSingleton;
+}
 
 // onEvent subscribes to the agent's typed event stream; returns an unsubscribe.
 export function onEvent(cb: (e: WireEvent) => void): () => void {
-  if (inWails && typeof window !== "undefined" && window.runtime) {
-    return window.runtime.EventsOn(EVENT_CHANNEL, (payload) =>
-      cb(payload as WireEvent),
-    );
+  if (realApp() && typeof window !== "undefined" && window.runtime) {
+    return window.runtime.EventsOn(EVENT_CHANNEL, (payload) => cb(payload as WireEvent));
   }
   return mockSubscribe(cb);
 }
 
-export const app: AppBindings = wailsApp ?? makeMockApp();
+// app proxies each call to the live binding (or the dev mock only when truly
+// outside the shell), so a late-injected window.go is picked up transparently.
+export const app: AppBindings = new Proxy({} as AppBindings, {
+  get(_t, prop) {
+    const target = realApp() ?? getMock();
+    const v = (target as unknown as Record<string, unknown>)[String(prop)];
+    return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+  },
+});
 
 // openExternal opens a URL in the system browser (so links in rendered markdown
 // don't navigate the webview away from the app). Falls back to window.open in the
@@ -176,5 +201,12 @@ function makeMockApp(): AppBindings {
       }
       return [{ name: "file.go", isDir: false }];
     },
+    async Models() {
+      return [
+        { ref: "deepseek/deepseek-v4-flash", provider: "deepseek", model: "deepseek-v4-flash", current: true },
+        { ref: "deepseek/deepseek-v4-pro", provider: "deepseek", model: "deepseek-v4-pro", current: false },
+      ];
+    },
+    async SetModel() {},
   };
 }

@@ -7,7 +7,7 @@ import { ApprovalModal } from "./components/ApprovalModal";
 import { StatusBar } from "./components/StatusBar";
 
 export default function App() {
-  const { state, send, cancel, approve, setPlan, newSession } = useController();
+  const { state, send, cancel, approve, setPlan, newSession, setModel } = useController();
   const [plan, setPlanLocal] = useState(false);
 
   const togglePlan = () => {
@@ -43,7 +43,13 @@ export default function App() {
 
       <footer className="footer">
         <Composer running={state.running} onSend={send} onCancel={cancel} />
-        <StatusBar meta={state.meta} context={state.context} running={state.running} plan={plan} />
+        <StatusBar
+          meta={state.meta}
+          context={state.context}
+          running={state.running}
+          plan={plan}
+          onSwitchModel={setModel}
+        />
       </footer>
 
       {state.approval && (

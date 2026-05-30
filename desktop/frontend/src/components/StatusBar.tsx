@@ -1,4 +1,5 @@
 import { FolderGit2 } from "lucide-react";
+import { ModelSwitcher } from "./ModelSwitcher";
 import type { ContextInfo, Meta } from "../lib/types";
 
 // shortCwd trims a path to its last two segments so the status line stays compact
@@ -14,17 +15,19 @@ export function StatusBar({
   context,
   running,
   plan,
+  onSwitchModel,
 }: {
   meta?: Meta;
   context: ContextInfo;
   running: boolean;
   plan: boolean;
+  onSwitchModel: (name: string) => void;
 }) {
   const pct = context.window ? Math.min(100, Math.round((context.used / context.window) * 100)) : null;
   return (
     <div className="statusbar">
       <span className={`statusbar__dot ${running ? "statusbar__dot--busy" : ""}`} />
-      <span className="statusbar__model">{meta?.label ?? "connecting…"}</span>
+      <ModelSwitcher label={meta?.label ?? "connecting…"} onPick={onSwitchModel} />
       {pct !== null && (
         <>
           <span className="statusbar__sep">·</span>

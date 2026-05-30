@@ -272,5 +272,17 @@ export function useController() {
     app.Compact().catch(() => {});
   }, []);
 
-  return { state, send, cancel, approve, setPlan, newSession, compact };
+  // setModel switches the active model (the backend carries the conversation into
+  // the new model's session); refresh the header/gauge to reflect the new label.
+  const setModel = useCallback(async (name: string) => {
+    await app.SetModel(name).catch(() => {});
+    try {
+      dispatch({ type: "meta", meta: await app.Meta() });
+      dispatch({ type: "context", context: await app.ContextUsage() });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  return { state, send, cancel, approve, setPlan, newSession, compact, setModel };
 }
