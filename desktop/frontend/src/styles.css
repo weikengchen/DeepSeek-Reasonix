@@ -21457,9 +21457,6 @@ a[href] {
   padding: 14px 12px calc(10px + var(--statusbar-height));
 }
 
-.app--darwin .layout--workbench-chrome-hidden .sidebar--workbench {
-  padding-top: 46px;
-}
 
 .sidebar--workbench .sidebar__head {
   flex: 0 0 auto;
